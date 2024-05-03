@@ -8,6 +8,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 
 import {Construct} from "constructs";
 
@@ -16,6 +17,14 @@ import {Construct} from "constructs";
 export class EDAAppStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
+
+        // Tables
+        const FileTable = new dynamodb.Table(this, 'FileTable', {
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            partitionKey: { name: 'FileName', type: dynamodb.AttributeType.STRING },
+            tableName: 'FileTable',
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
 
         const imagesBucket = new s3.Bucket(this, "images", {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -57,6 +66,10 @@ export class EDAAppStack extends cdk.Stack {
                 entry: `${__dirname}/../lambdas/processImage.ts`,
                 timeout: cdk.Duration.seconds(15),
                 memorySize: 128,
+                environment: {
+                    REGION: cdk.Aws.REGION,
+                    TABLE_NAME: FileTable.tableName,
+                },
             }
         );
 
@@ -90,15 +103,14 @@ export class EDAAppStack extends cdk.Stack {
             maxBatchingWindow: cdk.Duration.seconds(10),
         });
         const newImageRejectionMailEventSource = new events.SqsEventSource(rejectedMailsQueue, {
-            maxBatchingWindow: cdk.Duration.seconds(5),
-            maxConcurrency: 2,
+            batchSize: 5,
+            maxBatchingWindow: cdk.Duration.seconds(10),
         });
 
         newImageTopic.addSubscription(
             new subs.SqsSubscription(imageProcessQueue)
         );
         newImageTopic.addSubscription(new subs.SqsSubscription(mailerQ));
-        newImageTopic.addSubscription(new subs.SqsSubscription(rejectedMailsQueue));
 
         processImageFn.addEventSource(newImageEventSource);
         mailerFn.addEventSource(newImageMailEventSource);
@@ -130,6 +142,9 @@ export class EDAAppStack extends cdk.Stack {
                 resources: ["*"],
             })
         );
+
+        // Grant the processImageFn function write access to the DynamoDB table
+        FileTable.grantReadWriteData(processImageFn);
 
         // Output
 
