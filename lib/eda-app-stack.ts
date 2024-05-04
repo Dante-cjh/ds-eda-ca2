@@ -36,7 +36,7 @@ export class EDAAppStack extends cdk.Stack {
 
         // rejected mails queue
         const rejectedMailsQueue = new sqs.Queue(this, "rejected-mailer-queue", {
-            receiveMessageWaitTime: cdk.Duration.seconds(10),
+            retentionPeriod: cdk.Duration.minutes(30),
         });
 
         const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
@@ -50,6 +50,10 @@ export class EDAAppStack extends cdk.Stack {
 
         const newImageTopic = new sns.Topic(this, "NewImageTopic", {
             displayName: "New Image topic",
+        });
+
+        const modifiedImageTopic = new sns.Topic(this, "ModifiedImageTopic", {
+            displayName: "Modified Image topic",
         });
 
         const mailerQ = new sqs.Queue(this, "mailer-queue", {
@@ -87,10 +91,26 @@ export class EDAAppStack extends cdk.Stack {
             entry: `${__dirname}/../lambdas/rejectionMailer.ts`,
         });
 
+        const deleteImageFn = new lambdanode.NodejsFunction(this, "delete-image-function", {
+            runtime: lambda.Runtime.NODEJS_16_X,
+            memorySize: 1024,
+            timeout: cdk.Duration.seconds(3),
+            entry: `${__dirname}/../lambdas/deleteImage.ts`,
+            environment: {
+                REGION: cdk.Aws.REGION,
+                TABLE_NAME: FileTable.tableName,
+            },
+        });
+
         // S3 --> SQS
         imagesBucket.addEventNotification(
             s3.EventType.OBJECT_CREATED,
             new s3n.SnsDestination(newImageTopic)  // Changed
+        );
+
+        imagesBucket.addEventNotification(
+            s3.EventType.OBJECT_REMOVED,
+            new s3n.SnsDestination(modifiedImageTopic)
         );
 
         // SQS --> Lambda
@@ -111,6 +131,16 @@ export class EDAAppStack extends cdk.Stack {
             new subs.SqsSubscription(imageProcessQueue)
         );
         newImageTopic.addSubscription(new subs.SqsSubscription(mailerQ));
+
+        modifiedImageTopic.addSubscription(
+            new subs.LambdaSubscription(deleteImageFn,{
+                filterPolicy: {
+                    extension: sns.SubscriptionFilter.stringFilter({
+                        allowlist: [".jpeg", ".png"],
+                    }),
+                },
+            })
+        )
 
         processImageFn.addEventSource(newImageEventSource);
         mailerFn.addEventSource(newImageMailEventSource);
@@ -145,6 +175,7 @@ export class EDAAppStack extends cdk.Stack {
 
         // Grant the processImageFn function write access to the DynamoDB table
         FileTable.grantReadWriteData(processImageFn);
+        FileTable.grantReadWriteData(deleteImageFn);
 
         // Output
 
