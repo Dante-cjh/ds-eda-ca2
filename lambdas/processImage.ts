@@ -30,32 +30,28 @@ export const handler: SQSHandler = async (event: SQSEvent, context: Context) => 
                 // Object key may have spaces or unicode non-ASCII characters.
                 const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
                 let origimage = null;
-                try {
-                    // Download the image from the S3 source bucket.
-                    const params: GetObjectCommandInput = {
-                        Bucket: srcBucket,
-                        Key: srcKey,
-                    };
+                // Download the image from the S3 source bucket.
+                const params: GetObjectCommandInput = {
+                    Bucket: srcBucket,
+                    Key: srcKey,
+                };
 
-                    // jpg and png only
-                    const extension = path.extname(srcKey);
-                    console.log("extension", extension);
-                    if (extension !== '.jpeg' && extension !== '.png') {
-                        throw new Error(`Invalid file type: ${extension}`);
-                    }
-
-                    await ddbDocClient.send(
-                        new PutItemCommand({
-                            TableName: process.env.TABLE_NAME,
-                            Item: {FileName: {S: srcKey}},
-                        })
-                    );
-
-                    origimage = await s3.send(new GetObjectCommand(params));
-                    // Process the image ......
-                } catch (error) {
-                    console.log(error);
+                // jpg and png only
+                const extension = path.extname(srcKey);
+                console.log("extension", extension);
+                if (extension !== '.jpeg' && extension !== '.png') {
+                    throw new Error(`Invalid file type: ${extension}`);
                 }
+
+                await ddbDocClient.send(
+                    new PutItemCommand({
+                        TableName: process.env.TABLE_NAME,
+                        Item: {FileName: {S: srcKey}},
+                    })
+                );
+
+                origimage = await s3.send(new GetObjectCommand(params));
+                // Process the image ......
             }
         }
     }
