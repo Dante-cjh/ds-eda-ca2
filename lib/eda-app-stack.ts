@@ -144,14 +144,8 @@ export class EDAAppStack extends cdk.Stack {
         newImageTopic.addSubscription(new subs.SqsSubscription(mailerQ));
 
         modifiedImageTopic.addSubscription(
-            new subs.LambdaSubscription(deleteImageFn,{
-                filterPolicy: {
-                    extension: sns.SubscriptionFilter.stringFilter({
-                        allowlist: [".jpeg", ".png"],
-                    }),
-                },
-            })
-        );
+            new subs.LambdaSubscription(deleteImageFn)
+        )
 
         modifiedImageTopic.addSubscription(
             new subs.LambdaSubscription(updateImageFn,{
