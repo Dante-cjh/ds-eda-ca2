@@ -102,6 +102,17 @@ export class EDAAppStack extends cdk.Stack {
             },
         });
 
+        const updateImageFn = new lambdanode.NodejsFunction(this, "update-image-function", {
+            runtime: lambda.Runtime.NODEJS_16_X,
+            memorySize: 1024,
+            timeout: cdk.Duration.seconds(3),
+            entry: `${__dirname}/../lambdas/updateImage.ts`,
+            environment: {
+                REGION: cdk.Aws.REGION,
+                TABLE_NAME: FileTable.tableName,
+            },
+        });
+
         // S3 --> SQS
         imagesBucket.addEventNotification(
             s3.EventType.OBJECT_CREATED,
@@ -140,7 +151,17 @@ export class EDAAppStack extends cdk.Stack {
                     }),
                 },
             })
-        )
+        );
+
+        modifiedImageTopic.addSubscription(
+            new subs.LambdaSubscription(updateImageFn,{
+                filterPolicy: {
+                    comment_type: sns.SubscriptionFilter.stringFilter({
+                        allowlist: ["Caption"],
+                    }),
+                },
+            })
+        );
 
         processImageFn.addEventSource(newImageEventSource);
         mailerFn.addEventSource(newImageMailEventSource);
@@ -176,11 +197,16 @@ export class EDAAppStack extends cdk.Stack {
         // Grant the processImageFn function write access to the DynamoDB table
         FileTable.grantReadWriteData(processImageFn);
         FileTable.grantReadWriteData(deleteImageFn);
+        FileTable.grantReadWriteData(updateImageFn);
 
         // Output
 
         new cdk.CfnOutput(this, "bucketName", {
             value: imagesBucket.bucketName,
+        });
+
+        new cdk.CfnOutput(this, "topicName", {
+            value: modifiedImageTopic.topicArn
         });
     }
 }
